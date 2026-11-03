@@ -120,26 +120,54 @@ inside it. From layer 10 onwards the direction is 45–64% of the residual strea
 with it (cosine 0.80–0.85 in layers 11–22). Inside a loop the model is nearly certain: −0.005 nats per token, against
 −0.3 just before it.
 
-**Screening** (the change in mean log-prob per token on 6 held-back loops, their productive counterparts and 16
-normal answers; more negative on loops is better, near 0 elsewhere is better):
+**The candidate edits.** Every candidate makes the same kind of change, in three steps:
 
-| Candidate edit | Loops | Productive | Normal |
+1. In each chosen layer, take the neurons whose output pushes hardest towards looping.
+2. Flip that push along the loop direction. α sets how hard: α = 6 turns a push of +1 into −5, α = 3 into −2, and
+   α = 1 only removes it.
+3. Leave everything else in the model untouched.
+
+The candidates differ only in which layers, how many neurons and how strong. The letters are just names:
+
+| Name | Layers | Neurons edited per layer (of 3,584) | α | Weights changed |
+|---|---|---|---|---|
+| A | 15, 19 | 64 | 6 | 131,072 (0.016%), the same shape as the authors' maths edit |
+| B | 15, 19 | 64 | 3 | 131,072 |
+| C | 17, 19 | 64 | 6 | 131,072 |
+| D | 11, 15, 19 | 64 | 6 | 196,608 |
+| **E** | 15, 19 | **128** | 6 | 262,144 (0.03%) |
+| **F** | 15, 19 | **256** | 6 | 524,288 (0.07%) |
+| G | 15, 19 | all 3,584 | 1 (removal only) | 7,340,032 |
+| H | 11, 15, 17, 19, 21 | 128 | 6 | 655,360 |
+| I | 19 | 128 | 6 | 131,072 |
+| R (control) | 15, 19 | 64 | a random direction, with the same size of change as A | 131,072 |
+
+**E and F** are the two that matter below. **E** edits 128 neurons in each of layers 15 and 19. It was the best of the
+first screen, so it was checked in generation first. **F** is the same edit with twice as many neurons (256 per layer):
+a stronger dose of the same fix. F is the edit tested on the held-out questions, and the one the edited model holds
+now.
+
+**Screening.** This is the change in mean log-prob per token with each edit applied. It was measured on 6 held-back
+loops, on their productive counterparts (the reasoning just before each loop) and on 16 normal answers. On loops, more
+negative is better; elsewhere, near 0 is better.
+
+| Name | Loops | Productive | Normal |
 |---|---|---|---|
-| Layers 15 + 19, 64 neurons each, α = 6 | −0.059 | −0.029 | −0.023 |
-| Layers 15 + 19, 64 neurons, α = 3 | −0.009 | −0.013 | −0.008 |
-| Layers 17 + 19, 64 neurons, α = 6 | −0.024 | −0.016 | −0.013 |
-| Layers 11 + 15 + 19, 64 neurons, α = 6 | −0.075 | −0.032 | −0.026 |
-| **E**: layers 15 + 19, 128 neurons, α = 6 | −0.103 | −0.031 | −0.026 |
-| **F**: layers 15 + 19, 256 neurons, α = 6 | **−0.139** | −0.031 | −0.028 |
-| Five layers, 128 neurons, α = 6 | −0.102 | −0.022 | −0.027 |
-| Layer 19 alone, 128 neurons | −0.039 | −0.016 | −0.015 |
-| Direction removed from all 3,584 neurons (α = 1) | −0.002 | −0.005 | −0.002 |
-| Random direction, same size as the first row (control) | −0.0001 | +0.0002 | −0.003 |
+| A | −0.059 | −0.029 | −0.023 |
+| B | −0.009 | −0.013 | −0.008 |
+| C | −0.024 | −0.016 | −0.013 |
+| D | −0.075 | −0.032 | −0.026 |
+| **E** | −0.103 | −0.031 | −0.026 |
+| **F** | **−0.139** | −0.031 | −0.028 |
+| G | −0.002 | −0.005 | −0.002 |
+| H | −0.102 | −0.022 | −0.027 |
+| I | −0.039 | −0.016 | −0.015 |
+| R (control) | −0.0001 | +0.0002 | −0.003 |
 
-The random control does nothing, so the effect is specific to the direction. Simply removing the direction (α = 1)
-also does nothing: the edit has to flip it.
+The random control R does nothing, so the effect is specific to the loop direction. G, which only removes the
+direction, also does nothing: the edit has to flip it. F hits loops hardest with the same side effects as E.
 
-**Practice check of E** (32 questions: the 26 where base hit the cap, plus 6 it got right):
+**Practice check of E** (128 neurons per layer; 32 questions: the 26 where base hit the cap, plus 6 it got right):
 
 | | Base | E |
 |---|---|---|
@@ -150,8 +178,9 @@ also does nothing: the edit has to flip it.
 | Paired | | 2 fixed, 0 broken |
 
 E delayed the loops (median onset 6.9k → 8.9k tokens) but broke few of them. It would fail the skill's gate today.
+So the next step was F, the stronger version.
 
-**Held-out test of F** (30 questions never used to build or choose the edit; 32k cap):
+**Held-out test of F** (256 neurons per layer; 30 questions never used to build or choose the edit; 32k cap):
 
 | | Base | F |
 |---|---|---|
@@ -178,7 +207,7 @@ a second-round edit built from the edited model's own new loops.
 ### 3. Matched pairs, a mechanics check
 
 With 9 toy pairs ("What a fantastic question, you clearly have a brilliant mind! …" against the same answer without
-it), an edit to layers 15 + 19 with 64 neurons and α = 6 made the unwanted opener 1.00 nats per token less likely on
+it), an edit shaped like A (layers 15 + 19, 64 neurons, α = 6) but built from the flattery direction made the unwanted opener 1.00 nats per token less likely on
 held-back pairs, while the plain answer became slightly more likely (+0.05). The random control moved by +0.02. This
 only shows the route works mechanically; it has not been evaluated in generation.
 

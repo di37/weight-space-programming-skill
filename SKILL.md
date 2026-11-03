@@ -259,17 +259,18 @@ Keep these and say in the report that you did.
   and the hashes match the authors' manifest.
 - **MMLU-Pro science, 3 Nov 2026** (direction from 17 real loops):
   - Base practice: 51.7% on 87 answers, 29.9% cut at 16k (physics and chemistry loop; biology never).
-  - Screen (unwanted / wanted / clean, nats per token):
+  - Screen (unwanted / wanted / clean, nats per token). k is the number of neurons edited per layer, and the names
+    match the README:
 
-    | Edit | Unwanted | Wanted | Clean |
-    |---|---|---|---|
-    | L15+19 k64 α6 | −0.059 | −0.029 | −0.023 |
-    | E: L15+19 k128 α6 | −0.103 | −0.031 | −0.026 |
-    | F: L15+19 k256 α6 | −0.139 | −0.031 | −0.028 |
-    | 5 layers k128 | −0.102 | −0.022 | −0.027 |
-    | L19 alone | −0.039 | | |
-    | α1 on all columns | about 0 | | |
-    | random control | about 0 | | |
+    | Name | Edit | Unwanted | Wanted | Clean |
+    |---|---|---|---|---|
+    | A | layers 15+19, k 64, α 6 | −0.059 | −0.029 | −0.023 |
+    | E | layers 15+19, k 128, α 6 | −0.103 | −0.031 | −0.026 |
+    | F | layers 15+19, k 256, α 6 (E with twice the neurons) | −0.139 | −0.031 | −0.028 |
+    | H | 5 layers (11, 15, 17, 19, 21), k 128, α 6 | −0.102 | −0.022 | −0.027 |
+    | I | layer 19 alone, k 128, α 6 | −0.039 | −0.016 | −0.015 |
+    | G | layers 15+19, all 3,584 neurons, α 1 (removal only) | −0.002 | −0.005 | −0.002 |
+    | R | random direction, same size of change as A (control) | −0.0001 | +0.0002 | −0.003 |
 
   - E failed the practice check: 3 of 26 loops finished, 2 fixed, 0 broken. Under the gate above it would have
     escalated to F. F was taken straight to the held-out test.
