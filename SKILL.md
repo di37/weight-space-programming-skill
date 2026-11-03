@@ -1,6 +1,6 @@
 ---
 name: weight-space-programming
-description: Make a small open LLM (e.g. Qwen3.5-0.8B) better at a goal by editing its weights directly, with no training ("weight-space programming"). Ready presets for maths (MATH-500) and science (MMLU-Pro); any other benchmark or behaviour works from your own prompts and matched example pairs (format, language, verbosity, sycophancy, loops). Finds the direction that separates the unwanted behaviour from the wanted one, edits the MLP down_proj columns that write it in a copy of the model on disk, screens against a random control, gates each edit on a practice check, escalates when one fails, and confirms with a paired held-out test. Portable scripts for Linux, Windows (WSL2) and macOS with NVIDIA, AMD or Apple GPUs. Use when the user says "make this model better at X without training", "edit the weights to fix X", "stop the model doing X", "remove the thinking loops", "weight-space programming" or "WSP". Not for fine-tuning, LoRA, RL, prompting, API-only models, or removing safety behaviour.
+description: Make a small open LLM or vision-language model (e.g. Qwen3.5-0.8B) better at a goal by editing its weights directly, with no training ("weight-space programming"). Presets for maths (MATH-500), science (MMLU-Pro), image captions (COCO), image-text relevance and object questions (POPE); any other benchmark or behaviour works from your own prompts (with images if needed) and matched pairs. Finds the direction separating the unwanted behaviour from the wanted one, edits the MLP down_proj columns that write it in a copy of the model on disk, screens against a random control, gates each edit on a practice check, escalates when one fails, and confirms with a paired held-out test. Linux, Windows (WSL2) and macOS; NVIDIA, AMD or Apple GPUs. Use when the user says "make this model better at X without training", "edit the weights to fix X", "stop the model doing X", "improve its captions", "weight-space programming" or "WSP". Not for fine-tuning, LoRA, RL, prompting, API-only models, or removing safety behaviour.
 ---
 
 # Weight-space programming
@@ -11,7 +11,8 @@ loops were traced to one residual direction written by the MLPs of layers 15 and
 `down_proj` columns per layer raised MATH-500 from 7.9% to 48.1%.
 
 **Follow the fast path below in order.** Every script is bundled in `scripts/` and tested. Do not redesign the
-pipeline or write new tooling unless a step fails.
+pipeline or write new tooling unless a step fails. Image goals (vision-language models such as Qwen3.5, which reads
+images natively) use the same steps; each step says what differs for them.
 
 **What the skill guarantees, and what it cannot.** No method can promise that an edit helps: some models have no
 single habit to switch off. The skill guarantees the process instead:
@@ -36,11 +37,14 @@ SKILL=<this skill's folder>  BASE=<base model folder>  COPY=<base model folder>-
 
 Run every generation job in the background (Claude Code: the Bash tool's `run_in_background`, not a shell `&`) and
 wait for its completion notice instead of polling. Generation dominates the time, so tell the user the budget up
-front: 1.5–3 hours on a consumer GPU for the presets, much less with vLLM on a datacenter GPU.
+front: 1.5–3 hours on a consumer GPU for the text presets, much less with vLLM on a datacenter GPU. Image presets
+answer in a few dozen tokens, so a whole pass takes 15–30 minutes.
 
-**0. Ask only what you need** (one question). Ask for the goal. If it is maths or science, use the preset: no more
-questions. Otherwise also ask for, or help write:
-- prompts that show the failure, as `{"id", "prompt", "answer"?, "group"?}` JSON lines;
+**0. Ask only what you need** (one question). Ask for the goal. If it is maths, science, image captions, whether a
+text or query is relevant to an image, or object questions about images, use the preset: no more questions. Otherwise
+also ask for, or help write:
+- prompts that show the failure, as `{"id", "prompt", "answer"?, "group"?, "image"?}` JSON lines (`image`: a file
+  path, relative to the JSON file);
 - how to score them (`references/goals.md` section 3);
 - for non-loop behaviours, 12+ matched pairs (section 2).
 
@@ -58,11 +62,13 @@ python $SKILL/scripts/copy_model.py --base $BASE --copy $COPY
 **3. Splits** (seconds).
 - **Science preset:** `python $SKILL/scripts/make_splits.py --task mmlu --source <MMLU-Pro test parquet> --out $WORK/splits`.
 - **Maths preset:** the same with `--task math --source <MATH-500 test.jsonl> --practice 25 --heldout 75`.
+- **Image presets:** `python $SKILL/scripts/make_image_data.py --preset caption --out $WORK/splits` (or `relevance`,
+  or `pope`). It reads only the rows it needs from the Hugging Face Hub and saves the images beside the splits.
 - **Own goal:** split your prompt file into `practice.jsonl` and `heldout.jsonl` by a fixed rule, plus a
   `test_ids.txt` of about 30 held-out ids, all chosen before any answer is seen.
 
-Below, `T` is the task (`mmlu`, `math` or `jsonl`) and `G` is the grader options (none for the presets; see
-`references/goals.md` otherwise).
+Below, `T` is the task (`mmlu`, `math`, `caption`, `relevance`, `pope` or `jsonl`) and `G` is the grader options
+(none for the presets; see `references/goals.md` otherwise).
 
 **4. Start two base runs at once:**
 
@@ -75,12 +81,15 @@ python $SKILL/scripts/run_eval.py --task $T --model $BASE --label base --data $W
 ```
 
 Use the model card's sampling for other models (`--profile`, or the override flags; `references/engines.md`). The
-held-out run does not depend on the edit.
+held-out run does not depend on the edit. **Image presets:** leave out `--max-tokens` and `--jobs`; they default to
+512 tokens and the non-thinking profile, and run one after the other in minutes.
 
 **5. Get the contrast.**
 - **Loops (presets, or any goal where answers hit the cap):** loops appear only when an answer hits the cap. Count
   them with `grep -c '"length"' $WORK/practice/base.jsonl`; at 15 or more, stop the practice run.
 - **Other behaviours:** you need the pairs, and the practice run only needs to finish to give the baseline.
+- **Short answers (yes/no, a letter, a caption):** the practice run only needs to finish; the contrast is its own
+  wrong (or below-median) answers against its right ones, read in step 6.
 
 Then grade:
 
@@ -97,7 +106,20 @@ don't. If it is under about 10%, tell the user to expect little before going on.
 python $SKILL/scripts/probe.py collect --task $T --model $BASE --data $WORK/splits/practice.jsonl --runs $WORK/practice/base.jsonl --out $WORK/probes
 ```
 
-Pairs (add `--runs`, `--data` and `--task` for clean side-effect windows):
+Short answers, including every image preset:
+
+```bash
+python $SKILL/scripts/probe.py collect-decisions --task $T --model $BASE --data $WORK/splits/practice.jsonl --runs $WORK/practice/base.jsonl --graded $WORK/practice/summary.json --out $WORK/probes
+```
+
+Captions can also use pairs made from the run (the model's weaker captions against the references); try them when
+the decisions route fails the screen:
+
+```bash
+python $SKILL/scripts/make_pairs.py --task $T --data $WORK/splits/practice.jsonl --runs $WORK/practice/base.jsonl --graded $WORK/practice/summary.json --out $WORK/pairs.jsonl
+```
+
+Pairs (yours or from `make_pairs.py`; add `--runs`, `--data` and `--task` for clean side-effect windows):
 
 ```bash
 python $SKILL/scripts/probe.py collect-pairs --model $BASE --pairs pairs.jsonl --thinking on --out $WORK/probes
@@ -152,10 +174,14 @@ python $SKILL/scripts/run_eval.py --task $T --model $COPY --label copy --data $W
 python $SKILL/scripts/grade.py --task $T $G $WORK/practice/base.jsonl $WORK/practice/copy.jsonl
 ```
 
-**The gate passes** only if all three hold:
+**The gate passes** only if all of these hold:
 - fixed ≥ max(3, 20% of the base failures checked),
 - broke ≤ fixed ÷ 4,
-- and, for loop goals, the cut share falls by at least a quarter.
+- for loop goals, the cut share falls by at least a quarter;
+- for yes/no goals, the F1 rises as well as the accuracy. An edit that only moves the yes-rate trades one class for
+  the other.
+
+For captions, "fixed" and "broke" count images whose CIDEr-D rose or fell (`grade.py` pairs per-image scores).
 
 Pass: go to step 10. Fail: step 9.
 
@@ -210,6 +236,10 @@ Give the verdict from the paired result:
   run the gate.
 - **Grading a partial run, or picking test questions by which finished first.**
 - **Stopping jobs with `pkill -f <text>`,** which also kills watchers whose command line contains that text.
+- **Same-prompt pairs for one-word answers.** Both branches start from the same state, so the pair carries no
+  decision. Use `collect-decisions`.
+- **Reading a yes/no gain from accuracy alone.** Check the yes-rate and per-class accuracy (`by_group`): a smoke test
+  edit raised POPE accuracy only by saying "no" more often.
 
 ## Rules (as in the post)
 
@@ -238,6 +268,9 @@ Keep these and say in the report that you did.
     same answer, nearly the same position. The onset is the first point where 90% of the next 512 tokens repeat an
     earlier 16-gram.
   - For other behaviours, the pairs give the match.
+  - For short answers, the classes are the model's own wrong and right answers, so they differ in input as well as
+    in behaviour; enough items average the inputs out. The states are read one position before each answer token,
+    where the answer is decided.
 - **Writer columns:** score_j = (mean unwanted − mean wanted activation of neuron j) × (u · W_down[:, j]); take the top
   k. The static write u·W alone is not enough: only 21–22 of the published 64 columns per layer are in its top 64.
 - **The edit:** W'[:, S] = W[:, S] − α u (uᵀ W[:, S]), computed in float32 from the model being edited. α = 1 removes
@@ -282,6 +315,15 @@ Keep these and say in the report that you did.
 - **Matched pairs, mechanics check:** on 9 toy pairs ("flattering opener" against a direct answer), an L15+19 k64 α6
   edit lowered the unwanted continuation by 1.00 nats per token, with the wanted one +0.05 and the random control +0.02.
   This only shows the mechanics; it has not been evaluated in generation.
+
+- **Image tasks, smoke test, 4 Nov 2026** (Qwen3.5-0.8B, non-thinking, mlx-vlm; small splits, so mechanics only):
+  - Base practice: POPE adversarial 84.4% of 90 (yes-rate 47.8%); COCO captions CIDEr-D 0.577 on 60, median 16 words.
+  - Screen: no candidate passed for captions (pairs or decisions; the random control moved as much). For POPE
+    decisions, the best (L15+19, k 256) dropped wrong answers by 0.68 and right ones by 0.30 nats, against 0.20 and
+    0.09 for the random control.
+  - POPE gate on 20 practice questions: 30% → 50% (4 fixed, 0 broke), but the yes-rate fell from 45% to 25%. Held-out
+    30: 80.0% → 83.3% (3 fixed, 2 broke, p = 1.0), F1 80 → 80, "no" right 80% → 100%, "yes" 80% → 67%: a threshold
+    shift, not better discrimination. The F1 rule in the gate now catches this.
 
 ## Reproducing the published edit
 

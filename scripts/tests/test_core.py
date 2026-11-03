@@ -17,7 +17,7 @@ from grade import extract_letter, grade, last_boxed, make_grader, paired, sign_t
 from loops import GAP_BEFORE, SETTLE_AFTER, loop_onset, matched_windows  # noqa: E402
 from make_splits import quotas  # noqa: E402
 from modeling import OutputOnlyPresencePenalty  # noqa: E402
-from probe import direction_and_scores, edit_layer, pair_items  # noqa: E402
+from probe import Prompter, direction_and_scores, edit_layer, pair_items  # noqa: E402
 from run_eval import sampling_from, without_batch  # noqa: E402
 
 ROWS, COLS = 64, 96
@@ -98,7 +98,7 @@ def test_paired_and_sign_test():
 def test_pair_windows_cover_exactly_the_continuations(tmp_path):
     pairs = tmp_path / "pairs.jsonl"
     pairs.write_text(json.dumps({"id": "p1", "prompt": "Q", "prefix": "Sure. ", "wanted": "No.", "unwanted": "Yes!"}))
-    (item,) = pair_items(CharTokenizer(), pairs, thinking=False)
+    (item,) = pair_items(Prompter(CharTokenizer()), pairs, thinking=False)
     for text, kind, branch in zip(item["texts"], ("wanted", "unwanted"), ("No.", "Yes!")):
         s, e = text["windows"][kind]
         assert "".join(map(chr, text["ids"][s:e])) == branch

@@ -17,9 +17,14 @@ The skill:
    failed check escalates through fixed steps.
 5. Confirms the result with a paired test on held-out questions, and gives a clear verdict.
 
-There are ready presets for **maths** (MATH-500) and **science** (MMLU-Pro physics, chemistry, biology,
-engineering). Any other goal works from your own prompts, a grader, and matched pairs: output format, answer
-language, verbosity, sycophancy, and so on. See `references/goals.md`.
+There are ready presets for **maths** (MATH-500), **science** (MMLU-Pro physics, chemistry, biology, engineering)
+and three **image** tasks for vision-language models:
+- **image captions**, on COCO, scored with CIDEr-D;
+- **whether a text or query is relevant to an image**, built from COCO captions with hard negatives;
+- **object hallucination**, on POPE ("Is there a … in the image?").
+
+Any other goal works from your own prompts (with images if needed), a grader, and matched pairs or the model's own
+wrong answers: output format, answer language, verbosity, sycophancy, and so on. See `references/goals.md`.
 
 ## Install
 
@@ -40,7 +45,7 @@ Then add one generation engine for your machine:
 | Machine | Engine |
 |---|---|
 | Linux, or Windows via WSL2, with an NVIDIA or AMD GPU | `vllm` |
-| macOS on Apple Silicon | `mlx-lm` |
+| macOS on Apple Silicon | `mlx-lm` (plus `mlx-vlm` for image tasks) |
 | Anything else | transformers (already installed; slow) |
 
 `references/engines.md` covers each setup, batch sizing and a five-minute smoke test.
@@ -52,6 +57,7 @@ In Claude Code, ask for what you want. For example:
 - "Make Qwen3.5-0.8B better at science without training."
 - "Edit the weights so the model stops looping on maths problems."
 - "Make this model answer in the language it's asked in. Here are some prompts."
+- "Improve its image captions." / "Make it better at telling whether a query matches the image."
 
 Claude loads the skill and follows its fast path:
 
@@ -210,6 +216,27 @@ With 9 toy pairs ("What a fantastic question, you clearly have a brilliant mind!
 it), an edit shaped like A (layers 15 + 19, 64 neurons, α = 6) but built from the flattery direction made the unwanted opener 1.00 nats per token less likely on
 held-back pairs, while the plain answer became slightly more likely (+0.05). The random control moved by +0.02. This
 only shows the route works mechanically; it has not been evaluated in generation.
+
+### 4. Image tasks, a smoke test
+
+This was a short run on small splits, to check that every step works with images: Qwen3.5-0.8B, thinking off,
+mlx-vlm.
+
+| | Base | Edited (layers 15 + 19, 256 neurons each, α = 6) |
+|---|---|---|
+| POPE adversarial, 90 practice questions | 84.4%, says "yes" 47.8% of the time | |
+| POPE, 20-question practice check | 30% | 50% (4 fixed, 0 broken) |
+| POPE, 30 held-out questions | 80.0%, F1 80 | 83.3%, F1 80 (3 fixed, 2 broken, p = 1.0) |
+| COCO captions, 60 practice images | CIDEr-D 0.577, median 16 words | no candidate passed the screen |
+
+For POPE, the edit made the model say "no" more often:
+- right on true "no": 80% before, 100% after;
+- right on true "yes": 80% before, 67% after.
+
+That is a threshold shift, not better vision. The skill's gate now also requires F1 to rise for yes/no tasks, so it
+would stop this edit. For captions, the random control moved as much as the real candidates, so by the skill's own
+rule there was no specific direction to edit at these layers. Both are honest "no reliable gain" outcomes, and they
+show how the skill reports them.
 
 ### Caveats
 

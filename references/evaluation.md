@@ -158,6 +158,13 @@ def paired_report(base, edited):
   in a different run of a different size: batch composition changes the random numbers.
 - `scripts/grade.py` reports fixed and broken counts with the exact sign test. With several samples per item, add the
   paired SE above.
+- **Scores instead of right/wrong (CIDEr-D for captions).** `grade.py` pairs per-item scores: fixed = higher than base,
+  broke = lower, plus the mean change. The sign test on those counts is the same exact test. CIDEr-D's IDF comes from
+  the references of the graded set, so compare runs graded in one `grade.py` call (it uses the first file's
+  references for all of them). `cider.py` follows the official scorer, including its quirk of measuring length in
+  bigrams; it tokenizes without Java, so absolute values differ slightly from leaderboard ones.
+- **Yes/no tasks.** Report accuracy, F1 with "yes" as positive, the yes-rate and per-class accuracy. Accuracy can rise
+  while F1 stays flat when an edit only moves the threshold; the gate requires F1 to rise.
 
 ## 6. Behaviour audit
 

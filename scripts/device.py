@@ -71,12 +71,12 @@ def recommended_batch(model_dir, max_tokens, jobs=1, memory=None):
     return max(1, min(MAX_BATCH, int(memory * MEMORY_SHARE / jobs // per_sequence)))
 
 
-def engines(device):
-    """Generation engines usable here, fastest first."""
+def engines(device, vision=False):
+    """Generation engines usable here, fastest first (vision: runs with images, which need mlx-vlm on Apple)."""
     found = []
     if device == "cuda" and installed("vllm"):
         found.append("vllm")
-    if device == "mps" and installed("mlx_lm"):
+    if device == "mps" and installed("mlx_lm") and (installed("mlx_vlm") or not vision):
         found.append("mlx")
     if installed("transformers"):
         found.append("hf")
